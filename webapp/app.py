@@ -42,21 +42,9 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from creative_compare_agent.validators.master import (
     MasterValidationAgent,
-    Creative,
     creative_from_string,
 )
-from email_normalize import (
-    strip_outlook_header_div,
-    extract_names_from_raw_html,
-    normalize_email_text as _normalize_email_text,
-    normalize_html_source as _normalize_html_source,
-)
-
-
-def _replace_creative_text(creative: Creative, new_text: str) -> Creative:
-    """Return a copy of *creative* with ``text`` replaced."""
-    from dataclasses import replace
-    return replace(creative, text=new_text)
+from email_normalize import strip_outlook_header_div
 
 
 _SAMPLES_DIR = os.path.join(_PROJECT_ROOT, "samples")
@@ -363,24 +351,17 @@ def create_app() -> Flask:
             ptr_raw = _resolve_input("ptr_text", "ptr_file")
             test_raw = _resolve_input("test_text", "test_file")
 
-            # 2) Strip forwarded-email wrapper content (From:/To:/Date: headers,
-            #    "--- Forwarded message ---" banners, etc.) so only the actual
-            #    HTML creative is validated — not metadata added by the sender.
-            ptr_raw, ptr_fwd_note = _extract_creative_content(ptr_raw)
-            test_raw, test_fwd_note = _extract_creative_content(test_raw)
+            # 2) Strip content before <html> tag (forwarded-message banners,
+            #    From:/To:/Date: headers that appear before the HTML creative).
+            ptr_raw, _ = _extract_creative_content(ptr_raw)
+            test_raw, _ = _extract_creative_content(test_raw)
 
-            # 3) Extract recipient names from raw HTML *before* stripping the
-            #    Outlook header div, so they can still be masked in the body text
-            #    (personalization: "Girish" / "Pawar" / account numbers).
-            ptr_names = extract_names_from_raw_html(ptr_raw)
-            test_names = extract_names_from_raw_html(test_raw)
-
-            # 4) Strip Outlook in-body header divs (From:/Sent:/To:/Subject:
+            # 3) Strip Outlook in-body header divs (From:/Sent:/To:/Subject:
             #    injected as an HTML element inside <body> by mail clients).
             ptr_raw = strip_outlook_header_div(ptr_raw)
             test_raw = strip_outlook_header_div(test_raw)
 
-            # 5) Strip base64 blobs and script bodies.
+            # 4) Strip base64 blobs and script bodies.
             ptr_content = _sanitize(ptr_raw)
             test_content = _sanitize(test_raw)
 
@@ -417,32 +398,9 @@ def create_app() -> Flask:
                     status=200,
                 )
 
-            # 6) Normalize personalization tokens and recipient names in the raw
-            #    HTML source so layout/brand validators see matching element
-            #    signatures (PTR <%= X %> and Test "6789"/"Girish" both become
-            #    ‹PERSONALIZED›).
-            ptr_content = _normalize_html_source(ptr_content, ptr_names)
-            test_content = _normalize_html_source(test_content, test_names)
-
             ptr_creative = creative_from_string(ptr_content, label="PTR")
             test_creative = creative_from_string(test_content, label="Test")
-
-            # 7) Normalize extracted text: strip any residual email-client header
-            #    lines and mask rendered recipient name words.
-            ptr_creative = _replace_creative_text(
-                ptr_creative, _normalize_email_text(ptr_creative.text, ptr_names)
-            )
-            test_creative = _replace_creative_text(
-                test_creative, _normalize_email_text(test_creative.text, test_names)
-            )
-
             report = MasterValidationAgent(ptr_creative, test_creative).validate()
-
-            # Surface any forwarded-email stripping notes in the report.
-            if ptr_fwd_note:
-                report.notes.insert(0, f"[PTR] {ptr_fwd_note}")
-            if test_fwd_note:
-                report.notes.insert(0, f"[Test] {test_fwd_note}")
 
             token = _cache_report(report.to_markdown(), report.to_json())
 
