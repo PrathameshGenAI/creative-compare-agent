@@ -121,12 +121,13 @@ class BrandComplianceAuditor:
 
     @staticmethod
     def _font_desc(prop, missing, extra) -> str:
+        prop_label = {"font-family": "font", "font-size": "font size", "font-weight": "font weight", "font-style": "font style"}.get(prop, prop)
         parts = []
         if missing:
-            parts.append(f"PTR uses {sorted(missing)} not found in Test")
+            parts.append(f"master uses {sorted(missing)[0]!r} which is not in the test email")
         if extra:
-            parts.append(f"Test introduces {sorted(extra)} not in PTR")
-        return f"Typography difference in {prop}: " + "; ".join(parts) + "."
+            parts.append(f"test email uses {sorted(extra)[0]!r} which is not in the master")
+        return f"{prop_label.capitalize()} differs — " + "; ".join(parts) + "."
 
     # ------------------------------------------------------------------
     # Colors
@@ -161,12 +162,10 @@ class BrandComplianceAuditor:
                 Variance(
                     dimension="brand",
                     severity="major",
-                    location=f"color {color}",
+                    location="colour",
                     ptr_value=color,
-                    test_value="(absent)",
-                    description=(
-                        f"Brand color {color} used in PTR is missing from Test."
-                    ),
+                    test_value="not used",
+                    description=f"Colour {color} is used in the master but missing from the test email.",
                     category="color",
                 )
             )
@@ -175,12 +174,10 @@ class BrandComplianceAuditor:
                 Variance(
                     dimension="brand",
                     severity="major",
-                    location=f"color {color}",
-                    ptr_value="(absent)",
+                    location="colour",
+                    ptr_value="not in master",
                     test_value=color,
-                    description=(
-                        f"Non-baseline color {color} appears in Test but not PTR."
-                    ),
+                    description=f"Colour {color} appears in the test email but not in the master — check if this is intentional.",
                     category="color",
                 )
             )
@@ -222,7 +219,7 @@ class BrandComplianceAuditor:
                     location="logo",
                     ptr_value=f"{len(ptr_logos)} logo(s)",
                     test_value="none",
-                    description="Logo present in PTR is missing from Test.",
+                    description="Logo is missing from the test email — it is present in the master.",
                     category="logo",
                 )
             )
@@ -235,7 +232,7 @@ class BrandComplianceAuditor:
                     location="logo",
                     ptr_value="none",
                     test_value=f"{len(test_logos)} logo(s)",
-                    description="Test contains a logo not present in PTR.",
+                    description="Test email has a logo that is not in the master — check if this is correct.",
                     category="logo",
                 )
             )
@@ -249,17 +246,13 @@ class BrandComplianceAuditor:
                     Variance(
                         dimension="brand",
                         severity="major",
-                        location="logo placement",
+                        location="logo position",
                         ptr_value=ptr_path,
                         test_value=test_path,
-                        description=(
-                            "Logo placement differs: PTR container path "
-                            f"'{ptr_path}' vs Test '{test_path}'."
-                        ),
+                        description="Logo is in a different position — its location in the layout has changed between master and test email.",
                         category="logo",
                     )
                 )
-            # alt text change
             ptr_alt = ptr_logos[0].get("alt", "")
             test_alt = test_logos[0].get("alt", "")
             if ptr_alt != test_alt:
@@ -270,10 +263,7 @@ class BrandComplianceAuditor:
                         location="logo alt text",
                         ptr_value=ptr_alt or "—",
                         test_value=test_alt or "—",
-                        description=(
-                            f"Logo alt text differs: PTR '{ptr_alt}' vs "
-                            f"Test '{test_alt}'."
-                        ),
+                        description=f"Logo description (alt text) changed — master says \"{ptr_alt}\", test email says \"{test_alt}\".",
                         category="logo",
                     )
                 )
@@ -321,36 +311,32 @@ class BrandComplianceAuditor:
                 Variance(
                     dimension="brand",
                     severity="critical",
-                    location="CTA",
-                    ptr_value=f"{len(ptr_ctas)} CTA(s)",
+                    location="button / CTA",
+                    ptr_value=f"{len(ptr_ctas)} button(s)",
                     test_value="none",
-                    description="Call-to-action present in PTR is missing from Test.",
+                    description="Call-to-action button is missing from the test email — it is present in the master.",
                     category="cta",
                 )
             )
             return variances
 
-        # Pair CTAs positionally (by index) for style comparison.
         for idx, ptr_node in enumerate(ptr_ctas):
             if idx >= len(test_ctas):
                 break
             test_node = test_ctas[idx]
             p = self._cta_style(ptr_node)
             t = self._cta_style(test_node)
-            loc = f"CTA #{idx + 1}"
+            btn = f"Button {idx + 1}" if len(ptr_ctas) > 1 else "Button"
 
             if _norm_text(p["text"]) != _norm_text(t["text"]):
                 variances.append(
                     Variance(
                         dimension="brand",
                         severity="major",
-                        location=f"{loc} text",
+                        location=f"{btn} label",
                         ptr_value=p["text"] or "—",
                         test_value=t["text"] or "—",
-                        description=(
-                            f"CTA text changed: PTR \"{p['text']}\" vs "
-                            f"Test \"{t['text']}\"."
-                        ),
+                        description=f"{btn} label changed — master says \"{p['text']}\", test email says \"{t['text']}\".",
                         category="cta",
                     )
                 )
@@ -359,13 +345,10 @@ class BrandComplianceAuditor:
                     Variance(
                         dimension="brand",
                         severity="major",
-                        location=f"{loc} background",
+                        location=f"{btn} background colour",
                         ptr_value=p["background"] or "—",
                         test_value=t["background"] or "—",
-                        description=(
-                            f"CTA background color changed: PTR "
-                            f"'{p['background']}' vs Test '{t['background']}'."
-                        ),
+                        description=f"{btn} background colour changed — master uses {p['background']}, test email uses {t['background']}.",
                         category="cta",
                     )
                 )
@@ -374,13 +357,10 @@ class BrandComplianceAuditor:
                     Variance(
                         dimension="brand",
                         severity="minor",
-                        location=f"{loc} text color",
+                        location=f"{btn} text colour",
                         ptr_value=p["color"] or "—",
                         test_value=t["color"] or "—",
-                        description=(
-                            f"CTA text color changed: PTR '{p['color']}' vs "
-                            f"Test '{t['color']}'."
-                        ),
+                        description=f"{btn} text colour changed — master uses {p['color']}, test email uses {t['color']}.",
                         category="cta",
                     )
                 )

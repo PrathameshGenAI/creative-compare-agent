@@ -144,16 +144,12 @@ class LayoutAlignmentInspector:
                     severity=self._presence_severity(node.tag),
                     location=label,
                     ptr_value="present",
-                    test_value="absent",
-                    description=(
-                        f"Missing element: {label} appears in PTR but is "
-                        f"absent from Test."
-                    ),
+                    test_value="missing",
+                    description=f"Block missing from test email — {label} exists in the master but was not found in the test.",
                     category="missing_element",
                 )
             )
 
-        # Whatever Test nodes remain are genuinely extra.
         for node in test_remaining:
             label = self._describe(node)
             variances.append(
@@ -161,12 +157,9 @@ class LayoutAlignmentInspector:
                     dimension="layout",
                     severity=self._presence_severity(node.tag),
                     location=label,
-                    ptr_value="absent",
+                    ptr_value="not in master",
                     test_value="present",
-                    description=(
-                        f"Extra element: {label} appears in Test but is "
-                        f"not present in PTR."
-                    ),
+                    description=f"Extra block in test email — {label} appears in the test but is not in the master.",
                     category="extra_element",
                 )
             )
@@ -235,12 +228,9 @@ class LayoutAlignmentInspector:
                         dimension="layout",
                         severity="major",
                         location=self._describe(node),
-                        ptr_value=ptr_align or "left (default)",
-                        test_value=test_align or "left (default)",
-                        description=(
-                            f"Alignment shift on {self._describe(node)}: "
-                            f"PTR is '{p}' but Test is '{t}'."
-                        ),
+                        ptr_value=ptr_align or "left",
+                        test_value=test_align or "left",
+                        description=f"Text alignment changed on {self._describe(node)} — master is {p}-aligned, test email is {t}-aligned.",
                         category="alignment",
                     )
                 )
@@ -264,13 +254,10 @@ class LayoutAlignmentInspector:
                 Variance(
                     dimension="layout",
                     severity="major",
-                    location="element order",
-                    ptr_value=" > ".join(self._short_sig(s) for s in ptr_order),
-                    test_value=" > ".join(self._short_sig(s) for s in test_order),
-                    description=(
-                        "Element ordering differs between PTR and Test "
-                        "(same elements, different sequence)."
-                    ),
+                    location="section order",
+                    ptr_value=" → ".join(self._short_sig(s) for s in ptr_order),
+                    test_value=" → ".join(self._short_sig(s) for s in test_order),
+                    description="Sections are in a different order — the same blocks exist but their sequence has changed between master and test email.",
                     category="reordered",
                 )
             ]
@@ -301,14 +288,10 @@ class LayoutAlignmentInspector:
                     Variance(
                         dimension="layout",
                         severity="major",
-                        location=f"heading \"{text}\"",
+                        location=f"heading — \"{text}\"",
                         ptr_value=tag,
                         test_value=test_by_text[text],
-                        description=(
-                            f"Heading level changed for \"{text}\": "
-                            f"PTR uses <{tag}> but Test uses "
-                            f"<{test_by_text[text]}>."
-                        ),
+                        description=f"Heading size changed for \"{text}\" — master uses {tag}, test email uses {test_by_text[text]}.",
                         category="hierarchy",
                     )
                 )

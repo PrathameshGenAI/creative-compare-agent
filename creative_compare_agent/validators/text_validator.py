@@ -249,16 +249,15 @@ class TextAccuracyValidator:
             if tag == "replace":
                 severity = self._replace_severity(ptr_seg, test_seg)
                 category = "typo" if self._looks_like_typo(ptr_seg, test_seg) else "wording"
-                desc = (
-                    f"Text changed at word {gi1 + 1}: "
-                    f"PTR says \"{_truncate(ptr_seg)}\" but Test says "
-                    f"\"{_truncate(test_seg)}\"."
-                )
+                if category == "typo":
+                    desc = f"Possible typo — \"{_truncate(ptr_seg)}\" in the master was changed to \"{_truncate(test_seg)}\" in the test email."
+                else:
+                    desc = f"Wording changed — master says \"{_truncate(ptr_seg)}\", test email says \"{_truncate(test_seg)}\"."
                 variances.append(
                     Variance(
                         dimension="text",
                         severity=severity,
-                        location=f"word {gi1 + 1}-{gi2}",
+                        location="copy",
                         ptr_value=ptr_seg,
                         test_value=test_seg,
                         description=desc,
@@ -266,15 +265,12 @@ class TextAccuracyValidator:
                     )
                 )
             elif tag == "delete":
-                desc = (
-                    f"Missing text: PTR contains \"{_truncate(ptr_seg)}\" "
-                    f"(word {gi1 + 1}-{gi2}) which is absent from Test."
-                )
+                desc = f"Text missing from test email — \"{_truncate(ptr_seg)}\" is in the master but not in the test."
                 variances.append(
                     Variance(
                         dimension="text",
                         severity="major",
-                        location=f"word {gi1 + 1}-{gi2}",
+                        location="copy",
                         ptr_value=ptr_seg,
                         test_value="",
                         description=desc,
@@ -282,15 +278,12 @@ class TextAccuracyValidator:
                     )
                 )
             elif tag == "insert":
-                desc = (
-                    f"Extra text: Test adds \"{_truncate(test_seg)}\" "
-                    f"(after PTR word {gi1}) not present in PTR."
-                )
+                desc = f"Extra text in test email — \"{_truncate(test_seg)}\" appears in the test but not in the master."
                 variances.append(
                     Variance(
                         dimension="text",
                         severity="major",
-                        location=f"after word {gi1}",
+                        location="copy",
                         ptr_value="",
                         test_value=test_seg,
                         description=desc,
@@ -368,21 +361,16 @@ class TextAccuracyValidator:
         for idx, (p_line, t_line) in enumerate(zip(ptr_lines, test_lines), start=1):
             if p_line == t_line:
                 continue
-            # If the only difference is whitespace runs, report a spacing issue.
             if _norm_spaces(p_line).strip() == _norm_spaces(t_line).strip() and \
                     p_line.strip() == t_line.strip():
-                # differs only by internal/leading/trailing whitespace amount
                 variances.append(
                     Variance(
                         dimension="text",
                         severity="minor",
-                        location=f"line {idx}",
+                        location="spacing",
                         ptr_value=_truncate(repr(p_line)),
                         test_value=_truncate(repr(t_line)),
-                        description=(
-                            f"Spacing/whitespace differs on line {idx} "
-                            "(same words, different spacing)."
-                        ),
+                        description="Extra spaces found — the words are the same but spacing differs.",
                         category="spacing",
                     )
                 )
@@ -401,14 +389,10 @@ class TextAccuracyValidator:
                 Variance(
                     dimension="text",
                     severity="minor",
-                    location="line structure",
+                    location="line breaks",
                     ptr_value=f"{len(ptr_lines)} lines",
                     test_value=f"{len(test_lines)} lines",
-                    description=(
-                        f"Line-break structure differs: PTR has "
-                        f"{len(ptr_lines)} line(s) but Test has "
-                        f"{len(test_lines)} line(s)."
-                    ),
+                    description=f"Line break count differs — master has {len(ptr_lines)} lines, test email has {len(test_lines)}.",
                     category="line_break",
                 )
             )
