@@ -45,7 +45,7 @@ _SAMPLES_DIR = os.path.join(_PROJECT_ROOT, "samples")
 # Per-creative character cap, measured AFTER sanitizing (stripping inline
 # base64 blobs etc.). Real marketing emails are well under this once the
 # embedded image data is removed.
-_MAX_INPUT_CHARS = 2_000_000
+_MAX_INPUT_CHARS = 12_000_000
 
 # Matches inline base64 payloads inside data: URIs on a SINGLE segment (no
 # newlines) — line-wrapped variants are handled by the line scanner below.
