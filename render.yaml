@@ -1,0 +1,13 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Push this repo to GitHub, then in Render: New + > Blueprint > pick the
+# repo. Render auto-detects this file and provisions the service below.
+services:
+  - type: web
+    name: creative-validation
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.13"

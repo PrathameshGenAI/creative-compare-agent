@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Master Creative Validation Report</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <h1>Master Creative Validation Report</h1>
+      <p>{{ report.ptr_label }} <span class="vs">vs</span> {{ report.test_label }} · generated {{ report.generated_at }}</p>
+    </header>
+
+    <div class="toolbar">
+      <a class="btn secondary" href="{{ url_for('index') }}">&larr; New comparison</a>
+      <a class="btn" href="{{ url_for('download', token=token, fmt='md') }}">Download Markdown</a>
+      <a class="btn" href="{{ url_for('download', token=token, fmt='json') }}">Download JSON</a>
+    </div>
+
+    <div class="verdict {{ 'ok' if passed else 'fail' }}">
+      <div class="verdict-main">
+        <span class="verdict-label">Verdict</span>
+        <span class="verdict-text">{{ report.verdict() }}</span>
+      </div>
+      <div class="verdict-score">
+        <span class="score-num">{{ report.score() }}</span>
+        <span class="score-den">/ 100</span>
+      </div>
+    </div>
+
+    <div class="meta-row">
+      <span class="pill">Dimensions run: {{ report.dimensions_run|join(', ') if report.dimensions_run else 'none' }}</span>
+      <span class="pill">Total variances: {{ report.total_variances }}</span>
+      <span class="pill">{{ 'No critical variances' if passed else 'Critical variances present' }}</span>
+    </div>
+
+    <div class="summaries">
+      <div class="card">
+        <h3 class="section-title">By dimension</h3>
+        <table class="summary">
+          <thead><tr><th>Dimension</th><th class="num">Count</th></tr></thead>
+          <tbody>
+            {% for dim, count in by_dimension.items() %}
+            <tr><td>{{ dim.capitalize() }}</td><td class="num">{{ count }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3 class="section-title">By severity</h3>
+        <table class="summary">
+          <thead><tr><th>Severity</th><th class="num">Count</th></tr></thead>
+          <tbody>
+            {% for sev in severity_order %}
+            <tr>
+              <td><span class="badge {{ sev }}">{{ sev.capitalize() }}</span></td>
+              <td class="num">{{ by_severity.get(sev, 0) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h2 class="section-title">Itemized variances</h2>
+    {% if variances %}
+    <div class="table-scroll">
+      <table class="variances">
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>Dimension</th>
+            <th>Severity</th>
+            <th>Location</th>
+            <th>PTR value</th>
+            <th>Test value</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in variances %}
+          <tr>
+            <td class="num">{{ loop.index }}</td>
+            <td>{{ v.dimension.capitalize() }}</td>
+            <td><span class="badge {{ v.severity }}">{{ v.severity.capitalize() }}</span></td>
+            <td class="loc">{{ v.location }}</td>
+            <td class="val ptr">{{ v.ptr_value if v.ptr_value not in (None, '') else '—' }}</td>
+            <td class="val test">{{ v.test_value if v.test_value not in (None, '') else '—' }}</td>
+            <td class="desc">{{ v.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">No variances detected — the creatives match exactly. 🎉</div>
+    {% endif %}
+
+    {% if report.notes %}
+    <div class="notes">
+      <h3>Notes</h3>
+      <ul>
+        {% for note in report.notes %}
+        <li>{{ note }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</body>
+</html>

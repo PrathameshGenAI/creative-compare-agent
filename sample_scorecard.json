@@ -1,0 +1,87 @@
+{
+  "name_a": "Convenience Concept",
+  "name_b": "Weeknight Relief Concept",
+  "audience": "busy working parents who want healthy weeknight dinners",
+  "objective": "drive first-box trial signups",
+  "generated_at": "2026-08-21T10:33:31+00:00",
+  "criteria": [
+    {
+      "criterion": "clarity",
+      "label": "Clarity",
+      "score_a": 6.9,
+      "score_b": 7.6,
+      "winner": "Creative B",
+      "rationale_a": "Avg sentence length 10.0; specificity 0.5; jargon terms 0.",
+      "rationale_b": "Avg sentence length 10.3; specificity 1.0; jargon terms 0."
+    },
+    {
+      "criterion": "originality",
+      "label": "Originality",
+      "score_a": 6.8,
+      "score_b": 8.0,
+      "winner": "Creative B",
+      "rationale_a": "Distinctive word ratio 1.00; cliché count 0; concrete detail signal 0.5.",
+      "rationale_b": "Distinctive word ratio 1.00; cliché count 0; concrete detail signal 1.0."
+    },
+    {
+      "criterion": "audience_fit",
+      "label": "Audience fit",
+      "score_a": 5.2,
+      "score_b": 6.7,
+      "winner": "Creative B",
+      "rationale_a": "Audience keyword overlap 0.00; second-person/directness 1.0; problem-solution signal 1.0.",
+      "rationale_b": "Audience keyword overlap 0.38; second-person/directness 1.0; problem-solution signal 1.0."
+    },
+    {
+      "criterion": "emotional_impact",
+      "label": "Emotional impact",
+      "score_a": 5.4,
+      "score_b": 7.2,
+      "winner": "Creative B",
+      "rationale_a": "Emotional words 0; sensory signal 1.0; benefit signal 0.7.",
+      "rationale_b": "Emotional words 3; sensory signal 1.0; benefit signal 0.7."
+    },
+    {
+      "criterion": "differentiation",
+      "label": "Differentiation",
+      "score_a": 6.6,
+      "score_b": 5.7,
+      "winner": "Creative A",
+      "rationale_a": "Differentiator terms 2; contrast signal 1.0; specificity 0.5.",
+      "rationale_b": "Differentiator terms 1; contrast signal 0.0; specificity 1.0."
+    },
+    {
+      "criterion": "cta_strength",
+      "label": "CTA strength",
+      "score_a": 8.0,
+      "score_b": 6.5,
+      "winner": "Creative A",
+      "rationale_a": "CTA terms 4; urgency signal 1.0; low-friction signal 1.0.",
+      "rationale_b": "CTA terms 1; urgency signal 1.0; low-friction signal 1.0."
+    },
+    {
+      "criterion": "risk_safety",
+      "label": "Risk / safety",
+      "score_a": 9.0,
+      "score_b": 9.0,
+      "winner": "Tie",
+      "rationale_a": "Risk terms 0; absolute claims 0. No obvious high-risk terms found.",
+      "rationale_b": "Risk terms 0; absolute claims 0. No obvious high-risk terms found."
+    }
+  ],
+  "weighted_total_a": 6.79,
+  "weighted_total_b": 7.28,
+  "recommendation": "Weeknight Relief Concept",
+  "summary": "Recommend Weeknight Relief Concept: it leads by 0.49 weighted points (7.28 vs 6.79) on this deterministic scorecard.",
+  "suggested_next_steps": [
+    "Use Weeknight Relief Concept as the lead direction, then borrow any criterion wins from the other option.",
+    "Improve Convenience Concept's audience fit (5.2/10).",
+    "Improve Convenience Concept's emotional impact (5.4/10).",
+    "Improve Weeknight Relief Concept's differentiation (5.7/10).",
+    "Validate with target-audience feedback and brand/legal review before launch."
+  ],
+  "notes": [
+    "Scores are deterministic heuristic estimates, not model-generated judgments.",
+    "Use legal, brand, and market review before launch."
+  ]
+}

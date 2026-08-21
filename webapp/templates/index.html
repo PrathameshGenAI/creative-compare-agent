@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Master Creative Validation Agent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <h1>Master Creative Validation Agent</h1>
+      <p>Compare a PTR (master) creative against a Test email and get a unified variance report — fully local, no API keys.</p>
+    </header>
+
+    {% if error %}
+      <div class="alert">{{ error }}</div>
+    {% endif %}
+
+    <div class="toolbar">
+      <a class="btn secondary" href="{{ url_for('index', sample=1) }}">Load sample</a>
+      {% if sample_loaded %}
+        <a class="btn secondary" href="{{ url_for('index') }}">Clear</a>
+      {% endif %}
+    </div>
+
+    <form method="POST" action="{{ url_for('validate') }}" enctype="multipart/form-data">
+      <div class="grid">
+        <div class="card">
+          <h2>PTR (master)</h2>
+          <p class="hint">Paste HTML or text below, or upload a .html / .txt file (upload wins).</p>
+          <textarea name="ptr_text" placeholder="Paste the PTR (master) creative here…">{{ ptr_text }}</textarea>
+          <div class="filerow">
+            <label>Or upload: <input type="file" name="ptr_file" accept=".html,.htm,.txt,.text,.md"></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Test Email</h2>
+          <p class="hint">Paste HTML or text below, or upload a .html / .txt file (upload wins).</p>
+          <textarea name="test_text" placeholder="Paste the Test creative here…">{{ test_text }}</textarea>
+          <div class="filerow">
+            <label>Or upload: <input type="file" name="test_file" accept=".html,.htm,.txt,.text,.md"></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn">Run validation</button>
+        <span class="hint">Both inputs required. HTML inputs unlock layout &amp; brand checks.</span>
+      </div>
+    </form>
+  </div>
+</body>
+</html>
