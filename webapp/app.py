@@ -139,14 +139,53 @@ def _sanitize(content: str) -> str:
     return content
 
 
+def _extract_pdf_text(data: bytes) -> str:
+    """Extract visible text from a PDF's bytes.
+
+    Marketing creatives are frequently exported as PDF. Reading the raw PDF
+    bytes as text yields megabytes of binary garbage, so we must parse the
+    document and pull the text layer instead.
+    """
+    import io
+
+    try:
+        from pypdf import PdfReader
+    except Exception:  # pragma: no cover - dependency guaranteed in prod
+        raise RuntimeError(
+            "PDF support requires the 'pypdf' package to be installed."
+        )
+    reader = PdfReader(io.BytesIO(data))
+    pages = []
+    for page in reader.pages:
+        try:
+            pages.append(page.extract_text() or "")
+        except Exception:
+            # Skip a page we can't parse rather than failing the whole doc.
+            continue
+    return "\n".join(pages)
+
+
+def _looks_like_pdf(filename: str, data: bytes) -> bool:
+    """Detect a PDF by extension or magic header (%PDF-)."""
+    if filename and filename.lower().endswith(".pdf"):
+        return True
+    return data[:5] == b"%PDF-"
+
+
 def _resolve_input(text_field: str, file_field: str) -> str:
-    """Return the effective content: uploaded file takes precedence."""
+    """Return the effective content: uploaded file takes precedence.
+
+    Handles PDF uploads by extracting their text layer; everything else is
+    decoded as UTF-8 text.
+    """
     upload = request.files.get(file_field)
     if upload and upload.filename:
         data = upload.read()
-        if isinstance(data, bytes):
-            return data.decode("utf-8", errors="replace")
-        return str(data)
+        if not isinstance(data, (bytes, bytearray)):
+            return str(data)
+        if _looks_like_pdf(upload.filename, data):
+            return _extract_pdf_text(bytes(data))
+        return data.decode("utf-8", errors="replace")
     return request.form.get(text_field, "") or ""
 
 
