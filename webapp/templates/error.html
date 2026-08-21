@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Something went wrong — Master Creative Validation Agent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <h1>Master Creative Validation Agent</h1>
+      <p>Compare a PTR (master) creative against a Test email and get a unified variance report — fully local, no API keys.</p>
+    </header>
+
+    <div class="alert">
+      <strong>{{ heading or "We couldn't finish that validation." }}</strong>
+      <p>{{ message }}</p>
+      {% if detail %}
+        <p class="hint" style="margin-top:.5rem;"><code>{{ detail }}</code></p>
+      {% endif %}
+    </div>
+
+    <div class="toolbar">
+      <a class="btn" href="{{ url_for('index') }}">← Back to start</a>
+      <a class="btn secondary" href="{{ url_for('index', sample=1) }}">Try the sample</a>
+    </div>
+  </div>
+</body>
+</html>

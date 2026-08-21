@@ -32,6 +32,7 @@ from flask import (
     render_template,
     request,
 )
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from creative_compare_agent.validators.master import (
     MasterValidationAgent,
@@ -39,6 +40,14 @@ from creative_compare_agent.validators.master import (
 )
 
 _SAMPLES_DIR = os.path.join(_PROJECT_ROOT, "samples")
+
+# Per-creative character cap. Beyond this we reject with a friendly message
+# rather than spend a request budget processing it.
+_MAX_INPUT_CHARS = 2_000_000
+
+# Hard cap on the whole upload body (~8MB) so oversized uploads are rejected
+# by Flask/Werkzeug before we ever read them into memory.
+_MAX_CONTENT_BYTES = 8 * 1024 * 1024
 
 # In-memory cache of the most recent reports for download links.
 # Keyed by an opaque token; local single-user app so this is sufficient.
@@ -80,6 +89,19 @@ _SEVERITY_ORDER = ("critical", "major", "minor")
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    app.config["MAX_CONTENT_LENGTH"] = _MAX_CONTENT_BYTES
+
+    def _render_error(message, detail="", heading="", status=200):
+        """Render the friendly error page (never a bare 500)."""
+        return (
+            render_template(
+                "error.html",
+                message=message,
+                detail=detail,
+                heading=heading,
+            ),
+            status,
+        )
 
     @app.route("/", methods=["GET"])
     def index():
@@ -97,39 +119,80 @@ def create_app() -> Flask:
 
     @app.route("/validate", methods=["POST"])
     def validate():
-        ptr_content = _resolve_input("ptr_text", "ptr_file")
-        test_content = _resolve_input("test_text", "test_file")
+        # Hard safety net: no matter what goes wrong inside, the user gets a
+        # friendly HTTP 200 page instead of a bare 500 from gunicorn.
+        try:
+            ptr_content = _resolve_input("ptr_text", "ptr_file")
+            test_content = _resolve_input("test_text", "test_file")
 
-        if not ptr_content.strip() or not test_content.strip():
-            return (
-                render_template(
-                    "index.html",
-                    ptr_text=ptr_content,
-                    test_text=test_content,
-                    error=(
-                        "Please provide BOTH a PTR (master) and a Test input — "
-                        "paste content or upload a file for each."
+            if not ptr_content.strip() or not test_content.strip():
+                return (
+                    render_template(
+                        "index.html",
+                        ptr_text=ptr_content[: _MAX_INPUT_CHARS],
+                        test_text=test_content[: _MAX_INPUT_CHARS],
+                        error=(
+                            "Please provide BOTH a PTR (master) and a Test input — "
+                            "paste content or upload a file for each."
+                        ),
                     ),
-                ),
-                400,
+                    400,
+                )
+
+            # Reject absurdly large inputs before processing.
+            if (
+                len(ptr_content) > _MAX_INPUT_CHARS
+                or len(test_content) > _MAX_INPUT_CHARS
+            ):
+                return _render_error(
+                    message=(
+                        "One or both creatives are too large to validate "
+                        f"(limit is {_MAX_INPUT_CHARS:,} characters each). "
+                        "Please trim the input or split it into smaller pieces."
+                    ),
+                    detail=(
+                        f"PTR: {len(ptr_content):,} chars, "
+                        f"Test: {len(test_content):,} chars."
+                    ),
+                    heading="Input too large",
+                    status=200,
+                )
+
+            ptr_creative = creative_from_string(ptr_content, label="PTR")
+            test_creative = creative_from_string(test_content, label="Test")
+            report = MasterValidationAgent(ptr_creative, test_creative).validate()
+
+            token = _cache_report(report.to_markdown(), report.to_json())
+
+            return render_template(
+                "report.html",
+                report=report,
+                variances=report.sorted_variances,
+                by_dimension=report.counts_by_dimension(),
+                by_severity=report.counts_by_severity(),
+                passed=report.passed,
+                token=token,
+                severity_order=_SEVERITY_ORDER,
             )
-
-        ptr_creative = creative_from_string(ptr_content, label="PTR")
-        test_creative = creative_from_string(test_content, label="Test")
-        report = MasterValidationAgent(ptr_creative, test_creative).validate()
-
-        token = _cache_report(report.to_markdown(), report.to_json())
-
-        return render_template(
-            "report.html",
-            report=report,
-            variances=report.sorted_variances,
-            by_dimension=report.counts_by_dimension(),
-            by_severity=report.counts_by_severity(),
-            passed=report.passed,
-            token=token,
-            severity_order=_SEVERITY_ORDER,
-        )
+        except RequestEntityTooLarge:
+            return _render_error(
+                message=(
+                    "The uploaded files are too large. Please keep the total "
+                    "upload under 8 MB."
+                ),
+                heading="Upload too large",
+                status=200,
+            )
+        except Exception as exc:  # noqa: BLE001 — deliberate catch-all
+            return _render_error(
+                message=(
+                    "Something went wrong while comparing these creatives. "
+                    "Please try again, or reduce the input size."
+                ),
+                detail=f"{type(exc).__name__}: {exc}",
+                heading="Validation failed",
+                status=200,
+            )
 
     @app.route("/download/<token>.<fmt>", methods=["GET"])
     def download(token: str, fmt: str):
@@ -153,6 +216,48 @@ def create_app() -> Flask:
                 },
             )
         abort(404, "Unknown format.")
+
+    # --- Global safety nets: never surface a bare 500 --------------------
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def _too_large(_exc):
+        return _render_error(
+            message=(
+                "The uploaded files are too large. Please keep the total "
+                "upload under 8 MB."
+            ),
+            heading="Upload too large",
+            status=200,
+        )
+
+    @app.errorhandler(500)
+    def _internal_error(exc):
+        return _render_error(
+            message=(
+                "The server hit an unexpected error. Please try again with "
+                "smaller inputs."
+            ),
+            detail=f"{type(exc).__name__}: {exc}",
+            heading="Internal error",
+            status=200,
+        )
+
+    @app.errorhandler(Exception)
+    def _unhandled(exc):
+        # Let Flask handle normal HTTP exceptions (404, etc.) as usual.
+        from werkzeug.exceptions import HTTPException
+
+        if isinstance(exc, HTTPException):
+            return exc
+        return _render_error(
+            message=(
+                "The server hit an unexpected error. Please try again with "
+                "smaller inputs."
+            ),
+            detail=f"{type(exc).__name__}: {exc}",
+            heading="Internal error",
+            status=200,
+        )
 
     return app
 
