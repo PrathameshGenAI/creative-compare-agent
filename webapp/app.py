@@ -23,8 +23,13 @@ from typing import Dict, Optional, Tuple
 
 # --- Make the project importable regardless of the current working dir ------
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
+# email_normalize.py lives in the same webapp/ directory as this file.
+# Add it to sys.path so the import works regardless of where gunicorn is launched.
+if _WEBAPP_DIR not in sys.path:
+    sys.path.insert(0, _WEBAPP_DIR)
 
 from flask import (
     Flask,
