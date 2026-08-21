@@ -19,17 +19,6 @@
       <a class="btn" href="{{ url_for('download', token=token, fmt='json') }}">Download JSON</a>
     </div>
 
-    <div class="verdict {{ 'ok' if passed else 'fail' }}">
-      <div class="verdict-main">
-        <span class="verdict-label">Verdict</span>
-        <span class="verdict-text">{{ report.verdict() }}</span>
-      </div>
-      <div class="verdict-score">
-        <span class="score-num">{{ report.score() }}</span>
-        <span class="score-den">/ 100</span>
-      </div>
-    </div>
-
     <div class="meta-row">
       <span class="pill">Dimensions run: {{ report.dimensions_run|join(', ') if report.dimensions_run else 'none' }}</span>
       <span class="pill">Total variances: {{ report.total_variances }}</span>
