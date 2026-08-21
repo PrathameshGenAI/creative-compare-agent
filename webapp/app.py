@@ -47,14 +47,50 @@ _SAMPLES_DIR = os.path.join(_PROJECT_ROOT, "samples")
 # embedded image data is removed.
 _MAX_INPUT_CHARS = 2_000_000
 
-# Matches inline base64 payloads inside data: URIs (images/fonts embedded
-# directly in the HTML). These can be hundreds of KB each and are pure noise
-# for a text/layout/brand comparison, so we replace them with a short marker
-# that still records "an embedded asset exists here".
-_DATA_URI_RE = re.compile(r"data:([^;,]*);base64,[A-Za-z0-9+/=\s]+")
-# Matches <script>...</script> bodies (tracking/analytics blobs) which also
-# add size without affecting the visible creative.
+# Matches inline base64 payloads inside data: URIs on a SINGLE segment (no
+# newlines) — line-wrapped variants are handled by the line scanner below.
+_DATA_URI_RE = re.compile(r"data:([^;,]*);base64,[A-Za-z0-9+/=]+")
+# <script>/<style> bodies add size without affecting the visible creative.
 _SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
+_STYLE_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
+# A single unbroken very-long token (e.g. an inline encoded run).
+_LONG_TOKEN_RE = re.compile(r"[A-Za-z0-9+/=]{500,}")
+# Set of characters that make up a base64 line (plus MIME soft-wrap chars).
+_B64_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+
+
+def _strip_base64_lines(text: str) -> str:
+    """Linear, backtracking-free scan that drops long base64 line-runs.
+
+    Marketing emails (esp. raw .eml MIME source) embed images as base64
+    attachments wrapped at ~76 chars per line. A run of many consecutive
+    lines that are almost entirely base64 characters is an encoded asset,
+    never visible copy. We collapse each such run into a single marker.
+    """
+    lines = text.splitlines()
+    out = []
+    run = 0
+    for ln in lines:
+        stripped = ln.strip()
+        # A "base64-ish" line: reasonably long and ≥ the vast majority
+        # base64 characters.
+        is_b64 = (
+            len(stripped) >= 60
+            and sum(c in _B64_CHARS for c in stripped) >= 0.95 * len(stripped)
+        )
+        if is_b64:
+            run += 1
+            continue
+        if run:
+            # Only treat as an asset if the run was substantial (>= 8 lines,
+            # i.e. > ~600 encoded bytes); otherwise keep the lines.
+            if run >= 8:
+                out.append("[EMBEDDED_ASSET_STRIPPED]")
+            run = 0
+        out.append(ln)
+    if run >= 8:
+        out.append("[EMBEDDED_ASSET_STRIPPED]")
+    return "\n".join(out)
 
 # Hard cap on the whole upload body so pathological uploads are rejected by
 # Flask/Werkzeug before we read them into memory. Generous because real
@@ -88,11 +124,18 @@ def _sanitize(content: str) -> str:
     """
     if not content:
         return content
+    # 1) Drop line-wrapped base64 runs (MIME attachments, wrapped data URIs).
+    content = _strip_base64_lines(content)
+    # 2) Inline single-line data: URIs.
     content = _DATA_URI_RE.sub(
         lambda m: "data:%s;base64,EMBEDDED_ASSET_STRIPPED" % (m.group(1) or ""),
         content,
     )
+    # 3) <script>/<style> bodies.
     content = _SCRIPT_RE.sub("<script></script>", content)
+    content = _STYLE_RE.sub("<style></style>", content)
+    # 4) Any single very long unbroken token.
+    content = _LONG_TOKEN_RE.sub("[EMBEDDED_ASSET_STRIPPED]", content)
     return content
 
 

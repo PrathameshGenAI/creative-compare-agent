@@ -134,7 +134,9 @@ class WebAppLargeInputTests(unittest.TestCase):
 
     def test_oversized_input_gets_friendly_message(self):
         # Over the 2,000,000-char per-creative cap -> friendly page, HTTP 200.
-        big = "x" * 2_100_000
+        # Use realistic prose (words + spaces) so the base64/asset sanitizer
+        # does NOT collapse it; this represents genuinely oversized copy.
+        big = ("lorem ipsum dolor sit amet " * 90_000)  # ~2.4M chars
         resp = self.client.post(
             "/validate",
             data={"ptr_text": big, "test_text": "hello world"},
