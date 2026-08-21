@@ -16,6 +16,7 @@ Markdown or JSON. Fully local; no external CDNs; no API keys.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import uuid
 from typing import Dict, Optional
@@ -41,9 +42,19 @@ from creative_compare_agent.validators.master import (
 
 _SAMPLES_DIR = os.path.join(_PROJECT_ROOT, "samples")
 
-# Per-creative character cap. Beyond this we reject with a friendly message
-# rather than spend a request budget processing it.
+# Per-creative character cap, measured AFTER sanitizing (stripping inline
+# base64 blobs etc.). Real marketing emails are well under this once the
+# embedded image data is removed.
 _MAX_INPUT_CHARS = 2_000_000
+
+# Matches inline base64 payloads inside data: URIs (images/fonts embedded
+# directly in the HTML). These can be hundreds of KB each and are pure noise
+# for a text/layout/brand comparison, so we replace them with a short marker
+# that still records "an embedded asset exists here".
+_DATA_URI_RE = re.compile(r"data:([^;,]*);base64,[A-Za-z0-9+/=\s]+")
+# Matches <script>...</script> bodies (tracking/analytics blobs) which also
+# add size without affecting the visible creative.
+_SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
 
 # Hard cap on the whole upload body (~8MB) so oversized uploads are rejected
 # by Flask/Werkzeug before we ever read them into memory.
@@ -62,6 +73,25 @@ def _read_sample(name: str) -> str:
             return fh.read()
     except OSError:
         return ""
+
+
+def _sanitize(content: str) -> str:
+    """Strip heavyweight, comparison-irrelevant blobs from the raw input.
+
+    - Inline base64 data URIs (embedded images/fonts) -> short marker.
+    - <script> bodies -> empty tag.
+    This preserves the visible/structural content the validators care about
+    while cutting megabytes of encoded noise that would otherwise blow past
+    the size cap and slow validation.
+    """
+    if not content:
+        return content
+    content = _DATA_URI_RE.sub(
+        lambda m: "data:%s;base64,EMBEDDED_ASSET_STRIPPED" % (m.group(1) or ""),
+        content,
+    )
+    content = _SCRIPT_RE.sub("<script></script>", content)
+    return content
 
 
 def _resolve_input(text_field: str, file_field: str) -> str:
@@ -122,8 +152,8 @@ def create_app() -> Flask:
         # Hard safety net: no matter what goes wrong inside, the user gets a
         # friendly HTTP 200 page instead of a bare 500 from gunicorn.
         try:
-            ptr_content = _resolve_input("ptr_text", "ptr_file")
-            test_content = _resolve_input("test_text", "test_file")
+            ptr_content = _sanitize(_resolve_input("ptr_text", "ptr_file"))
+            test_content = _sanitize(_resolve_input("test_text", "test_file"))
 
             if not ptr_content.strip() or not test_content.strip():
                 return (
