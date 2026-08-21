@@ -24,6 +24,26 @@ from .text_validator import TextAccuracyValidator
 from .layout_validator import LayoutAlignmentInspector
 from .brand_validator import BrandComplianceAuditor
 
+# email_normalize lives in webapp/ (not the validators package) so we import
+# it lazily to keep the core validators free of webapp dependencies.
+def _normalize_text(text: str) -> str:
+    """Apply email-client header stripping and personalization masking."""
+    try:
+        import importlib, sys, os
+        # Resolve webapp/ relative to this file's package root.
+        webapp_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "webapp",
+        )
+        if webapp_dir not in sys.path:
+            sys.path.insert(0, webapp_dir)
+        mod = importlib.import_module("email_normalize")
+        return mod.normalize_email_text(text)
+    except Exception:
+        # If the module is unavailable (e.g. running tests without webapp/),
+        # fall back to the raw text unchanged.
+        return text
+
 
 # ---------------------------------------------------------------------------
 # Optional OCR capability probe (never hard-fails)
@@ -176,10 +196,16 @@ class MasterValidationAgent:
 
         run_html = self.ptr.kind == "html" and self.test.kind == "html"
 
+        # Normalize both texts: strip Outlook-injected email-client headers
+        # (From:/To:/Sent:/Subject: blocks, "Pawar, Girish (CNE)" lines) and
+        # mask personalization tokens so they compare as equal.
+        ptr_text = _normalize_text(self.ptr.text)
+        test_text = _normalize_text(self.test.text)
+
         # --- Text accuracy (always) ---
         report.dimensions_run.append("text")
         report.extend(
-            self.text_validator.validate(self.ptr.text, self.test.text)
+            self.text_validator.validate(ptr_text, test_text)
         )
 
         if run_html:

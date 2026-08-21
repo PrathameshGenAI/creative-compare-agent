@@ -19,7 +19,7 @@ import os
 import re
 import sys
 import uuid
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 # --- Make the project importable regardless of the current working dir ------
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,8 +37,22 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from creative_compare_agent.validators.master import (
     MasterValidationAgent,
+    Creative,
     creative_from_string,
 )
+from email_normalize import (
+    strip_outlook_header_div,
+    extract_names_from_raw_html,
+    normalize_email_text as _normalize_email_text,
+    normalize_html_source as _normalize_html_source,
+)
+
+
+def _replace_creative_text(creative: Creative, new_text: str) -> Creative:
+    """Return a copy of *creative* with ``text`` replaced."""
+    from dataclasses import replace
+    return replace(creative, text=new_text)
+
 
 _SAMPLES_DIR = os.path.join(_PROJECT_ROOT, "samples")
 
@@ -57,6 +71,31 @@ _STYLE_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
 _LONG_TOKEN_RE = re.compile(r"[A-Za-z0-9+/=]{500,}")
 # Set of characters that make up a base64 line (plus MIME soft-wrap chars).
 _B64_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+
+# Regex to locate the outermost <html> block inside a pasted forwarded email.
+_HTML_TAG_RE = re.compile(r"<html[\s>]", re.IGNORECASE)
+
+# Forwarded-message / quoted-email preamble patterns (plain-text inputs).
+# We look for lines that look like email headers immediately before the
+# creative content starts and strip them (along with any leading blank lines).
+_FWD_HEADER_RE = re.compile(
+    r"""
+    (?:^|\n)                        # start of string or newline
+    [ \t]*                          # optional leading whitespace
+    (?:
+        -{3,}[ \t]*(?:forwarded|original|begin forwarded)[ \t\w]*-{3,}  # --- Forwarded message ---
+      | from\s*:\s*\S               # From: header
+      | to\s*:\s*\S                 # To: header
+      | cc\s*:\s*\S                 # Cc: header
+      | date\s*:\s*\S               # Date: header
+      | sent\s*:\s*\S               # Sent: header
+      | subject\s*:\s*\S            # Subject: header
+      | reply-to\s*:\s*\S           # Reply-To: header
+    )
+    [^\n]*                          # rest of that line
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 def _strip_base64_lines(text: str) -> str:
@@ -111,6 +150,80 @@ def _read_sample(name: str) -> str:
             return fh.read()
     except OSError:
         return ""
+
+
+def _extract_creative_content(content: str) -> Tuple[str, str]:
+    """Strip forwarded-email wrapper content and return only the creative.
+
+    When a user pastes an email forwarded by a colleague (e.g. "Girish
+    Pawar forwarded this"), the pasted text contains email-client metadata
+    (From/To/Date/Subject headers, forwarded-message banners, quoted reply
+    chains) *around* the actual HTML creative. Those wrapper lines are not
+    part of the creative and would produce spurious variances.
+
+    Strategy:
+    - If the content contains an ``<html`` tag, extract from that tag to
+      the matching ``</html>`` close tag. Everything before or after
+      (forwarded-message headers, the email client's own chrome) is
+      discarded.
+    - For plain-text content, strip leading lines that match common
+      forwarded/quoted email header patterns (From:, To:, Date:, Subject:,
+      the ``--- Forwarded message ---`` banner, etc.) and any blank lines
+      that follow them.
+
+    Returns (cleaned_content, note) where note is a non-empty string if
+    content was trimmed so a UI note can be shown.
+    """
+    if not content:
+        return content, ""
+
+    # --- HTML path: extract the outermost <html>…</html> block -----------
+    m = _HTML_TAG_RE.search(content)
+    if m:
+        start = m.start()
+        # Find the matching </html> closing tag.
+        close = content.lower().rfind("</html>")
+        if close != -1:
+            end = close + len("</html>")
+        else:
+            # No closing tag — take everything from <html> onwards.
+            end = len(content)
+
+        extracted = content[start:end]
+        stripped_chars = len(content) - len(extracted)
+        if stripped_chars > 20:
+            return extracted, (
+                f"Forwarded-email wrapper stripped ({stripped_chars:,} chars of "
+                "non-creative content removed before the <html> block)."
+            )
+        return extracted, ""
+
+    # --- Plain-text path: strip leading email-header lines ---------------
+    lines = content.splitlines()
+    first_content_line = 0
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Skip the dashed forwarded-message banner and any consecutive header
+        # lines that immediately follow it.
+        if _FWD_HEADER_RE.match("\n" + line) or (
+            line.strip() == "" and first_content_line == i
+        ):
+            first_content_line = i + 1
+        else:
+            # A non-empty, non-header line: stop scanning.
+            if line.strip():
+                break
+        i += 1
+
+    if first_content_line > 0:
+        cleaned = "\n".join(lines[first_content_line:])
+        removed = len(content) - len(cleaned)
+        return cleaned, (
+            f"Forwarded-email header lines stripped "
+            f"({first_content_line} line(s), {removed:,} chars removed)."
+        )
+    return content, ""
 
 
 def _sanitize(content: str) -> str:
@@ -241,8 +354,30 @@ def create_app() -> Flask:
         # Hard safety net: no matter what goes wrong inside, the user gets a
         # friendly HTTP 200 page instead of a bare 500 from gunicorn.
         try:
-            ptr_content = _sanitize(_resolve_input("ptr_text", "ptr_file"))
-            test_content = _sanitize(_resolve_input("test_text", "test_file"))
+            # 1) Resolve raw input (file upload wins over textarea).
+            ptr_raw = _resolve_input("ptr_text", "ptr_file")
+            test_raw = _resolve_input("test_text", "test_file")
+
+            # 2) Strip forwarded-email wrapper content (From:/To:/Date: headers,
+            #    "--- Forwarded message ---" banners, etc.) so only the actual
+            #    HTML creative is validated — not metadata added by the sender.
+            ptr_raw, ptr_fwd_note = _extract_creative_content(ptr_raw)
+            test_raw, test_fwd_note = _extract_creative_content(test_raw)
+
+            # 3) Extract recipient names from raw HTML *before* stripping the
+            #    Outlook header div, so they can still be masked in the body text
+            #    (personalization: "Girish" / "Pawar" / account numbers).
+            ptr_names = extract_names_from_raw_html(ptr_raw)
+            test_names = extract_names_from_raw_html(test_raw)
+
+            # 4) Strip Outlook in-body header divs (From:/Sent:/To:/Subject:
+            #    injected as an HTML element inside <body> by mail clients).
+            ptr_raw = strip_outlook_header_div(ptr_raw)
+            test_raw = strip_outlook_header_div(test_raw)
+
+            # 5) Strip base64 blobs and script bodies.
+            ptr_content = _sanitize(ptr_raw)
+            test_content = _sanitize(test_raw)
 
             if not ptr_content.strip() or not test_content.strip():
                 return (
@@ -277,9 +412,32 @@ def create_app() -> Flask:
                     status=200,
                 )
 
+            # 6) Normalize personalization tokens and recipient names in the raw
+            #    HTML source so layout/brand validators see matching element
+            #    signatures (PTR <%= X %> and Test "6789"/"Girish" both become
+            #    ‹PERSONALIZED›).
+            ptr_content = _normalize_html_source(ptr_content, ptr_names)
+            test_content = _normalize_html_source(test_content, test_names)
+
             ptr_creative = creative_from_string(ptr_content, label="PTR")
             test_creative = creative_from_string(test_content, label="Test")
+
+            # 7) Normalize extracted text: strip any residual email-client header
+            #    lines and mask rendered recipient name words.
+            ptr_creative = _replace_creative_text(
+                ptr_creative, _normalize_email_text(ptr_creative.text, ptr_names)
+            )
+            test_creative = _replace_creative_text(
+                test_creative, _normalize_email_text(test_creative.text, test_names)
+            )
+
             report = MasterValidationAgent(ptr_creative, test_creative).validate()
+
+            # Surface any forwarded-email stripping notes in the report.
+            if ptr_fwd_note:
+                report.notes.insert(0, f"[PTR] {ptr_fwd_note}")
+            if test_fwd_note:
+                report.notes.insert(0, f"[Test] {test_fwd_note}")
 
             token = _cache_report(report.to_markdown(), report.to_json())
 
