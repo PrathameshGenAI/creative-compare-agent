@@ -56,9 +56,11 @@ _DATA_URI_RE = re.compile(r"data:([^;,]*);base64,[A-Za-z0-9+/=\s]+")
 # add size without affecting the visible creative.
 _SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
 
-# Hard cap on the whole upload body (~8MB) so oversized uploads are rejected
-# by Flask/Werkzeug before we ever read them into memory.
-_MAX_CONTENT_BYTES = 8 * 1024 * 1024
+# Hard cap on the whole upload body so pathological uploads are rejected by
+# Flask/Werkzeug before we read them into memory. Generous because real
+# marketing emails often inline base64 images (many MB); we strip those in
+# ``_sanitize`` right after, then enforce the post-sanitize character cap.
+_MAX_CONTENT_BYTES = 64 * 1024 * 1024
 
 # In-memory cache of the most recent reports for download links.
 # Keyed by an opaque token; local single-user app so this is sufficient.
@@ -120,6 +122,11 @@ _SEVERITY_ORDER = ("critical", "major", "minor")
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = _MAX_CONTENT_BYTES
+    # Werkzeug 3.1+ caps non-file form fields (e.g. pasted textarea content)
+    # at 500KB by default via MAX_FORM_MEMORY_SIZE. Real pasted emails with
+    # inline base64 images easily exceed that, so raise it to match the body
+    # cap; the post-sanitize character cap is the real guardrail.
+    app.config["MAX_FORM_MEMORY_SIZE"] = _MAX_CONTENT_BYTES
 
     def _render_error(message, detail="", heading="", status=200):
         """Render the friendly error page (never a bare 500)."""
@@ -208,7 +215,7 @@ def create_app() -> Flask:
             return _render_error(
                 message=(
                     "The uploaded files are too large. Please keep the total "
-                    "upload under 8 MB."
+                    "upload under 64 MB."
                 ),
                 heading="Upload too large",
                 status=200,
@@ -254,7 +261,7 @@ def create_app() -> Flask:
         return _render_error(
             message=(
                 "The uploaded files are too large. Please keep the total "
-                "upload under 8 MB."
+                "upload under 64 MB."
             ),
             heading="Upload too large",
             status=200,
